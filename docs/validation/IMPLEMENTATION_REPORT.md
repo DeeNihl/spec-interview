@@ -14,15 +14,17 @@ Date: 2026-08-09
 - Rich human output and plain JSON output for non-interactive use.
 - Parlor/Gemma health/configuration boundary and fixture-tested event translation.
 - Nova Sonic prerequisite/configuration boundary and fixture-tested event translation.
+- Local Gemma streaming transport with model discovery, interruption, history checkpointing,
+  and resume through an OpenAI-compatible endpoint.
 - Dockerfile, Compose file, dev container configuration, project guidance, and validation docs.
 
 Validation results:
 
 ```text
 ruff check .                 All checks passed
-ruff format --check .        28 files already formatted
-mypy                         Success: no issues found in 18 source files
-pytest                       22 passed in 0.57s
+ruff format --check .        32 files already formatted
+mypy                         Success: no issues found in 19 source files
+pytest                       28 passed
 ```
 
 Two real CLI processes were run against the installed editable package. One completed and
@@ -83,4 +85,3 @@ Implement the Parlor WebSocket client behind `LocalParlorGemmaProvider`, using r
 frames first and a transport interface that can be replaced in tests. Then validate the tiny
 browser audio window on the Mac. That exercises the most uncertain local-audio behavior
 without entangling AWS credentials or Nova renewal in the same debugging pass.
-

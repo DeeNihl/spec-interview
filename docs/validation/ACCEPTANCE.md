@@ -31,6 +31,13 @@ Expected evidence:
 - a `session_resumed` event follows the earlier checkpoint;
 - `transcript.txt` and `summary.md` can be deleted and deterministically regenerated.
 
+## Android Gemma acceptance — not yet device validated
+
+The local Gemma provider is tested with a deterministic transport. Follow
+[`../android/GEMMA.md`](../android/GEMMA.md) to validate LiteRT-LM, the registered model ID,
+streaming, interruption, and resume in Termux. Do not claim native audio until microphone
+input and the LiteRT-LM multimodal request shape are tested on the phone.
+
 ## Mac audio acceptance — not yet validated
 
 After the Parlor transport slice exists:
@@ -58,4 +65,3 @@ The live slice must validate:
 - provider connection renewal while preserving the interview session ID;
 - checkpoint continuity across process restart;
 - latency and cost collection.
-

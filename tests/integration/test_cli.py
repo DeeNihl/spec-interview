@@ -15,6 +15,7 @@ def test_provider_list_plain() -> None:
     providers = json.loads(result.stdout)
     assert [provider["name"] for provider in providers] == [
         "mock",
+        "gemma-local",
         "parlor-gemma",
         "nova-sonic",
     ]
