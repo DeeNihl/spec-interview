@@ -1,0 +1,15 @@
+{
+  "name": "spec-interview",
+  "build": {"dockerfile": "../Dockerfile", "context": ".."},
+  "remoteUser": "appuser",
+  "postCreateCommand": "pip install -e '.[dev]'",
+  "mounts": [
+    "source=spec-interview-dev-data,target=/data/sessions,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "charliermarsh.ruff"]
+    }
+  }
+}
+

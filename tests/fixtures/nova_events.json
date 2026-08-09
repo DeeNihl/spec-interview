@@ -1,0 +1,5 @@
+[
+  {"eventType": "inputTranscriptComplete", "content": "What is the boundary?"},
+  {"eventType": "textOutputDelta", "content": "The boundary"},
+  {"eventType": "textOutputComplete", "content": "The boundary is explicit."}
+]

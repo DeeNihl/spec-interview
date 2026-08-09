@@ -1,0 +1,5 @@
+[
+  {"type": "transcript.final", "text": "What is the boundary?"},
+  {"type": "response.delta", "text": "The boundary"},
+  {"type": "response.complete", "text": "The boundary is explicit."}
+]

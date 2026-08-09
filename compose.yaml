@@ -1,0 +1,10 @@
+services:
+  spec-interview:
+    build: .
+    volumes:
+      - spec-interview-data:/data/sessions
+    command: ["doctor", "--plain"]
+
+volumes:
+  spec-interview-data:
+
