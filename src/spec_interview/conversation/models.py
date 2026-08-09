@@ -58,6 +58,8 @@ class AudioChunk(StrictModel):
     data: bytes
     sample_rate_hz: int = 16_000
     channels: int = 1
+    encoding: Literal["pcm_s16le", "wav", "opus", "aac", "amr_wb", "amr_nb"] = "pcm_s16le"
+    is_final: bool = True
 
 
 class ToolResult(StrictModel):

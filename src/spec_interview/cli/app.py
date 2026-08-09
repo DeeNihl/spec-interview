@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Annotated
 from uuid import UUID
 
@@ -12,19 +13,24 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from spec_interview.android import AndroidProbe
+from spec_interview.audio import TermuxMicrophoneRecorder
 from spec_interview.config import AppConfig, ConversationProviderFactory, ProviderName
 from spec_interview.conversation.manager import ConversationManager
-from spec_interview.conversation.models import ProviderStatus, ResponseInterrupted
+from spec_interview.conversation.models import AudioChunk, ProviderStatus, ResponseInterrupted
 from spec_interview.conversation.provider import ProviderUnavailableError
+from spec_interview.providers.gemma import OpenAICompatibleGemmaTransport
 from spec_interview.sessions import SessionStore
 
 app = typer.Typer(help="Conduct and preserve provider-neutral technical interviews.")
 providers_app = typer.Typer(help="Inspect conversation providers.")
 sessions_app = typer.Typer(help="Inspect saved interview sessions.")
 devices_app = typer.Typer(help="Inspect optional audio devices.")
+android_app = typer.Typer(help="Probe and validate Android/Termux boundaries.")
 app.add_typer(providers_app, name="providers")
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(devices_app, name="devices")
+app.add_typer(android_app, name="android")
 console = Console()
 
 
@@ -85,6 +91,68 @@ def doctor(
         for status in statuses:
             icon = "OK" if status.available else "--"
             typer.echo(f"[{icon}] {status.name}: {status.detail}")
+
+
+async def _probe_android(config: AppConfig) -> dict[str, object]:
+    transport = OpenAICompatibleGemmaTransport(
+        config.gemma_endpoint,
+        api_key=config.gemma_api_key,
+    )
+    report = await AndroidProbe(transport).inspect()
+    return report.model_dump(mode="json")
+
+
+@android_app.command("probe")
+def android_probe(
+    plain: Annotated[bool, typer.Option("--plain", help="Use machine-friendly JSON.")] = False,
+) -> None:
+    """Inventory Android, Termux:API, likely model apps, and the loopback server."""
+    report = asyncio.run(_probe_android(AppConfig()))
+    if plain:
+        typer.echo(json.dumps(report, indent=2))
+        return
+    typer.echo(json.dumps(report, indent=2))
+
+
+async def _record_android_turn(
+    duration_seconds: int,
+    data_dir: Path | None,
+) -> tuple[UUID, str]:
+    config = _config(data_dir).model_copy(update={"gemma_audio_enabled": True})
+    provider = ConversationProviderFactory.create("gemma-local", config)
+    manager = ConversationManager(provider, SessionStore(config.data_dir))
+    status = await provider.status()
+    if not status.available:
+        raise ProviderUnavailableError(status.detail)
+    with TemporaryDirectory(prefix="spec-interview-audio-") as temporary:
+        target = Path(temporary) / "utterance.opus"
+        audio = await TermuxMicrophoneRecorder().record(target, duration_seconds)
+        await manager.start()
+        before = manager.last_sequence
+        await manager.send_audio(AudioChunk(data=audio, encoding="opus"))
+        terminal = await manager.wait_for_response(before, wait_seconds=180.0)
+        await manager.create_checkpoint()
+        summary = await manager.close()
+    return summary.session_id, terminal.payload.type
+
+
+@android_app.command("record-test")
+def android_record_test(
+    duration_seconds: Annotated[
+        int,
+        typer.Option("--seconds", min=1, max=30, help="Bounded microphone utterance length."),
+    ] = 8,
+    data_dir: Annotated[Path | None, typer.Option("--data-dir")] = None,
+    plain: Annotated[bool, typer.Option("--plain")] = False,
+) -> None:
+    """Record one Termux utterance, transcribe it with Gemma, and stream a response."""
+    try:
+        session_id, result = asyncio.run(_record_android_turn(duration_seconds, data_dir))
+    except (ProviderUnavailableError, RuntimeError, ValueError) as error:
+        typer.echo(f"Android audio test failed: {error}", err=True)
+        raise typer.Exit(code=2) from None
+    payload = {"session_id": str(session_id), "terminal_event": result}
+    typer.echo(json.dumps(payload) if plain else f"Session {session_id}: {result}")
 
 
 async def _start_session(

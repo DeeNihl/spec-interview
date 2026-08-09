@@ -11,6 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field
 ProviderName = Literal["mock", "gemma-local", "parlor-gemma", "nova-sonic"]
 
 
+def _environment_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.casefold() in {"1", "true", "yes", "on"}
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -30,6 +37,9 @@ class AppConfig(BaseModel):
     )
     gemma_api_key: str | None = Field(
         default_factory=lambda: os.getenv("SPEC_INTERVIEW_GEMMA_API_KEY")
+    )
+    gemma_audio_enabled: bool = Field(
+        default_factory=lambda: _environment_bool("SPEC_INTERVIEW_GEMMA_AUDIO_ENABLED")
     )
     aws_region: str | None = Field(
         default_factory=lambda: os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")

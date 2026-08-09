@@ -4,8 +4,10 @@
 interviews. This proof demonstrates that one manager, event store, checkpoint format, and
 CLI can outlive provider connections and preserve both completed and interrupted responses.
 
-The mock provider is fully executable and tested. `gemma-local` provides a streaming text
-integration with a local OpenAI-compatible Gemma server, including LiteRT-LM on Android.
+The mock provider is fully executable and tested. `gemma-local` provides streaming text and
+bounded native-audio input through a local OpenAI-compatible Gemma server, including
+LiteRT-LM on Android. Audio is transcribed first and then passed through the same normalized
+text-turn path, so transcripts, interruption, checkpoint, and resume remain provider-neutral.
 The Parlor/Gemma audio and Amazon Nova Sonic providers currently define honest,
 fixture-tested adapter boundaries; their live transports still require device and AWS
 acceptance slices respectively.
@@ -72,6 +74,8 @@ Each session directory contains:
 ```text
 spec-interview providers list [--plain]
 spec-interview devices list
+spec-interview android probe [--plain]
+spec-interview android record-test [--seconds 1..30]
 spec-interview doctor [--plain]
 spec-interview start --provider {mock,gemma-local,parlor-gemma,nova-sonic}
 spec-interview resume SESSION_ID
@@ -87,9 +91,13 @@ For a local Gemma server:
 
 ```bash
 export SPEC_INTERVIEW_GEMMA_ENDPOINT=http://127.0.0.1:8081
-export SPEC_INTERVIEW_GEMMA_MODEL=gemma4-e4b
+export SPEC_INTERVIEW_GEMMA_MODEL=MODEL_ID_FROM_V1_MODELS
 spec-interview doctor
 spec-interview start --provider gemma-local --message "Map the system boundary."
+
+# On Termux with Termux:API microphone permission:
+spec-interview android probe --plain
+spec-interview android record-test --seconds 8
 ```
 
 See [`docs/android/GEMMA.md`](docs/android/GEMMA.md) for the Termux/LiteRT-LM path and the
@@ -132,12 +140,15 @@ Fully implemented and tested in the cloud proof:
 - CLI plus plain JSON output;
 - fixture-level Parlor and Nova event translation;
 - provider diagnostics and explicit unavailable states;
-- streaming local Gemma text, interruption, checkpoint, and resume through a transport seam.
+- streaming local Gemma text, interruption, checkpoint, and resume through a transport seam;
+- LiteRT-LM `input_audio` serialization, bounded Termux microphone capture, native Gemma ASR,
+  normalized transcript generation, and audio interruption/failure contracts.
 
 Not yet claimed:
 
 - live Parlor/Gemma WebSocket and browser audio;
-- native Gemma audio input and Android microphone/Bluetooth behavior;
+- real Z Fold model loading, microphone permission, performance, heat, and Bluetooth routing;
+- continuous microphone streaming, VAD, playback, and duplex voice behavior;
 - microphone, playback, Bluetooth routing, VAD, and barge-in on macOS;
 - live Bedrock bidirectional streaming or Nova session renewal;
 - interview policy, Opus architect, or automatic repository edits.

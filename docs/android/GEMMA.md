@@ -1,78 +1,104 @@
 # Gemma on Android and Termux
 
-## Current integration boundary
+## What this branch implements
 
-`gemma-local` is a streaming text provider for an OpenAI-compatible model server on the
-same device. It is designed first for LiteRT-LM's loopback server and is also compatible
-with servers such as llama.cpp that implement:
+`gemma-local` uses LiteRT-LM's OpenAI-compatible loopback server for streamed text and
+native audio input. The audio path is intentionally two-stage:
 
-```text
-GET  /v1/models
-POST /v1/chat/completions   (stream=true, SSE response)
-```
+1. Termux:API records one bounded mono 16 kHz Opus utterance.
+2. Gemma transcribes it through LiteRT-LM's `input_audio` request shape.
+3. The transcript enters the ordinary text-turn path.
+4. The interview response streams through normalized events.
 
-This slice includes model discovery, streamed normalized events, cancellation, partial-text
-preservation, conversation history, checkpoint, and resume. It does not yet send microphone
-audio to Gemma or synthesize speech.
+This preserves a real user transcript and reuses the same interruption, JSONL, checkpoint,
+resume, and transcript consumers as every other provider. It is not yet continuous duplex
+audio. Gemma 4 accepts mono 16 kHz audio clips up to 30 seconds, so the CLI enforces the same
+upper bound. See Google's [Gemma audio guidance](https://ai.google.dev/gemma/docs/capabilities/audio)
+and [LiteRT-LM Android API](https://developers.google.com/edge/litert-lm/android).
 
-## Why an existing Google app may not be reusable
+## First: identify what is already on the phone
 
-Google AI Edge Gallery and similar Android apps keep their downloaded model files in the
-app's private storage. Android normally prevents Termux and another app from reading that
-storage. Having Gemma available inside the app therefore does not prove that the Python CLI
-can use the same model artifact.
-
-If the app is still installed, record its exact name and model label before downloading
-anything else. We can then check whether it supports export, shared-storage selection, or an
-external API. Do not root the phone or weaken app isolation for this project.
-
-## LiteRT-LM path
-
-LiteRT-LM 0.14 and newer documents Android `aarch64` support for its Python API and CLI,
-including Termux. Its OpenAI-compatible server can be started with:
+From Termux, clone the repository's `feature-android` branch and install the project. Then run
+the read-only probe before downloading another model:
 
 ```bash
-litert-lm serve --host 127.0.0.1 --port 8081
+git clone --branch feature-android https://github.com/DeeNihl/spec-interview.git
+cd spec-interview
+python -m pip install -e .
+spec-interview android probe --plain | tee android-probe.json
 ```
 
-Install the project and run diagnostics:
+The report contains the Android/device identity, architecture, likely AI Edge or Termux:API
+package IDs, microphone command availability, and model IDs returned by `/v1/models`. Android
+does not allow Termux to inspect another app's private model files, so a package match proves
+only that the app is installed—not that its model can be reused.
+
+Google identifies AI Edge Gallery as its Android sample app, but its app-private downloads are
+not a supported cross-app model registry. Do not root the phone or weaken app isolation.
+
+## Termux prerequisites
+
+Microphone capture uses the official `termux-microphone-record` command. It requires both the
+Termux:API Android companion app and its Termux package, plus microphone permission:
+
+```bash
+pkg install termux-api
+termux-microphone-record -h
+```
+
+The command boundary uses only documented flags: file, duration, Opus encoder, 16 kHz sample
+rate, and one channel. See the official
+[Termux:API microphone script](https://github.com/termux/termux-api-package/blob/master/scripts/termux-microphone-record.in).
+
+## LiteRT-LM registry and server
+
+Install the Android extra, import an audio-capable Gemma model into LiteRT-LM's registry, and
+start the loopback-only server. Do not guess the client model name; use the ID returned by the
+registry endpoint.
 
 ```bash
 python -m pip install -e '.[android]'
+litert-lm serve --host 127.0.0.1 --port 8081
+```
+
+In a second Termux session:
+
+```bash
 curl -s http://127.0.0.1:8081/v1/models
 
 export SPEC_INTERVIEW_GEMMA_ENDPOINT=http://127.0.0.1:8081
 export SPEC_INTERVIEW_GEMMA_MODEL=MODEL_ID_FROM_V1_MODELS
+export SPEC_INTERVIEW_GEMMA_AUDIO_ENABLED=true
 
 spec-interview doctor
 spec-interview start --provider gemma-local \
   --message "Help me identify the most fragile boundary in this design."
+spec-interview android record-test --seconds 8
 ```
 
-Use the plain model ID returned by `/v1/models`. LiteRT-LM 0.14 has a reported regression
-when backend suffixes such as `,gpu` are placed in the OpenAI request's `model` field.
-Configure CPU/GPU/NPU in LiteRT-LM itself rather than adding a suffix here.
+LiteRT-LM documents `litert-lm serve`, its model registry, and `/v1/models` in the
+[OpenAI-compatible server guide](https://developers.google.com/edge/litert-lm/cli/openai_server).
+Its current server source explicitly translates OpenAI `input_audio` parts into LiteRT native
+audio blobs; the repository tests pin our serializer to that boundary.
 
-## Device acceptance checklist
+## Device acceptance
 
-1. Confirm Android version, Termux architecture, free storage, and available memory.
-2. Record the exact existing Google app and model name, if present.
-3. Start LiteRT-LM and verify `/v1/models` from the same Termux session.
-4. Run `spec-interview doctor` and confirm `gemma-local` is available.
-5. Complete a text turn and inspect the saved transcript.
-6. Interrupt a long response and confirm partial text is preserved.
-7. Resume the session and confirm earlier turns remain in model context.
-8. Record time-to-first-token, tokens per second, memory pressure, heat, and battery use.
+Record these results before calling the integration complete:
 
-## Next Android slice
+1. Exact `android-probe.json` app package and model ID output.
+2. `doctor` reports `gemma-local` available with native audio enabled.
+3. One text turn completes and persists its transcript.
+4. One 8-second microphone turn produces an accurate `You:` transcript and response.
+5. An audio turn interrupted during ASR produces `response_interrupted` and remains resumable.
+6. A long text response interrupted mid-stream preserves its partial assistant text.
+7. Resume uses the same interview UUID and includes earlier turns in model context.
+8. Time to first token, transcription latency, tokens/second, peak memory, heat, and battery.
+9. Internal microphone and intended Bluetooth headset routing tested separately.
 
-After text inference works, add a small native Android audio client or LiteRT-LM bridge for:
+## Honest boundary
 
-- microphone capture and 16 kHz mono audio normalization;
-- Gemma 4 native audio input;
-- VAD and interruption;
-- streamed text back to the provider;
-- Android audio focus, Bluetooth routing, and foreground-service lifecycle.
-
-The core provider must continue to report `native_audio=false` until that path is actually
-implemented and tested on the device.
+The cloud suite proves serialization, event order, cancellation, persistence, and command
+construction without Android, a microphone, or a model. The phone must still prove Android
+permissions, actual Opus decode, model/audio-backend compatibility, and routing. Continuous
+capture, VAD, TTS playback, Bluetooth controls, foreground-service lifecycle, and full duplex
+conversation are later slices.

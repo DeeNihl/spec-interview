@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from collections.abc import AsyncIterator, Sequence
 from contextlib import suppress
@@ -13,6 +14,8 @@ import httpx
 
 from spec_interview.conversation.models import (
     AudioChunk,
+    AudioInputStarted,
+    AudioInputStopped,
     ConversationCapabilities,
     ConversationCheckpoint,
     ConversationEvent,
@@ -45,6 +48,14 @@ class GemmaTransport(Protocol):
     async def list_models(self) -> Sequence[str]: ...
 
     def stream_chat(self, model: str, messages: Sequence[ChatMessage]) -> AsyncIterator[str]: ...
+
+    async def transcribe_audio(
+        self,
+        model: str,
+        audio: bytes,
+        encoding: str,
+        prompt: str,
+    ) -> str: ...
 
 
 class OpenAICompatibleGemmaTransport:
@@ -107,6 +118,53 @@ class OpenAICompatibleGemmaTransport:
 
     async def stream_chat(self, model: str, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
         request = {"model": model, "messages": list(messages), "stream": True}
+        async for text in self._stream_request(request):
+            yield text
+
+    @staticmethod
+    def build_audio_request(
+        model: str,
+        audio: bytes,
+        encoding: str,
+        prompt: str,
+    ) -> dict[str, object]:
+        """Build the input_audio shape accepted by LiteRT-LM's OpenAI handler."""
+        return {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": base64.b64encode(audio).decode("ascii"),
+                                "format": encoding,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+            "stream": True,
+        }
+
+    async def transcribe_audio(
+        self,
+        model: str,
+        audio: bytes,
+        encoding: str,
+        prompt: str,
+    ) -> str:
+        chunks = [
+            text
+            async for text in self._stream_request(
+                self.build_audio_request(model, audio, encoding, prompt)
+            )
+        ]
+        return "".join(chunks).strip()
+
+    async def _stream_request(self, request: dict[str, object]) -> AsyncIterator[str]:
         timeout = httpx.Timeout(self.timeout_seconds, connect=10.0)
         async with httpx.AsyncClient(
             timeout=timeout, transport=self.http_transport, trust_env=False
@@ -131,18 +189,17 @@ class LocalGemmaProvider(QueueEventMixin, ConversationProvider):
     """Local text conversation provider backed by Gemma through loopback HTTP."""
 
     name = "gemma-local"
-    capabilities = ConversationCapabilities(
-        barge_in=True,
-        local_execution=True,
-        text_injection=True,
-        transcript_events=True,
-    )
 
     def __init__(
         self,
         model: str,
         transport: GemmaTransport,
         *,
+        audio_enabled: bool = False,
+        transcription_prompt: str = (
+            "Transcribe this speech in its original language. Output only the transcription, "
+            "with no commentary or formatting."
+        ),
         system_prompt: str = (
             "You are a grounded technical peer conducting a specification interview. "
             "Ask one focused question at a time, challenge fragile assumptions, and make "
@@ -152,12 +209,23 @@ class LocalGemmaProvider(QueueEventMixin, ConversationProvider):
         self._init_queue()
         self.model = model
         self.transport = transport
+        self.audio_enabled = audio_enabled
+        self.transcription_prompt = transcription_prompt
         self.system_prompt = system_prompt
+        self.capabilities = ConversationCapabilities(
+            native_audio=audio_enabled,
+            barge_in=True,
+            local_execution=True,
+            text_injection=True,
+            transcript_events=True,
+        )
         self._history: list[ChatMessage] = [{"role": "system", "content": system_prompt}]
         self._response_task: asyncio.Task[None] | None = None
         self._current_text = ""
         self._turn_count = 0
         self._state = ConversationState.IDLE
+        self._audio_parts: list[bytes] = []
+        self._audio_encoding: str | None = None
 
     async def status(self) -> ProviderStatus:
         try:
@@ -180,7 +248,10 @@ class LocalGemmaProvider(QueueEventMixin, ConversationProvider):
         return ProviderStatus(
             name=self.name,
             available=True,
-            detail=f"Gemma model {self.model!r} available through local server",
+            detail=(
+                f"Gemma model {self.model!r} available through local server"
+                + ("; native audio request boundary enabled" if self.audio_enabled else "")
+            ),
             capabilities=self.capabilities,
         )
 
@@ -200,9 +271,31 @@ class LocalGemmaProvider(QueueEventMixin, ConversationProvider):
         )
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        raise NotImplementedError(
-            "gemma-local currently supports text streaming; native Gemma audio is a later slice"
-        )
+        if not self.audio_enabled:
+            raise NotImplementedError(
+                "gemma-local audio is disabled; set SPEC_INTERVIEW_GEMMA_AUDIO_ENABLED=true"
+            )
+        if chunk.sample_rate_hz != 16_000 or chunk.channels != 1:
+            raise ValueError("Gemma audio must be mono at 16 kHz")
+        if self._response_task and not self._response_task.done():
+            raise RuntimeError("a response is already in progress")
+        if self._audio_encoding is None:
+            self._audio_encoding = chunk.encoding
+            await self._emit(AudioInputStarted())
+        elif self._audio_encoding != chunk.encoding:
+            raise ValueError("all chunks in one audio utterance must use the same encoding")
+        self._audio_parts.append(chunk.data)
+        if not chunk.is_final:
+            return
+        audio = b"".join(self._audio_parts)
+        encoding = self._audio_encoding
+        if encoding is None:
+            raise RuntimeError("audio encoding was not initialized")
+        self._audio_parts = []
+        self._audio_encoding = None
+        await self._emit(AudioInputStopped())
+        await self._change_state(ConversationState.PROCESSING)
+        self._response_task = asyncio.create_task(self._transcribe_and_respond(audio, encoding))
 
     async def send_text(self, text: str) -> None:
         if self._response_task and not self._response_task.done():
@@ -234,6 +327,31 @@ class LocalGemmaProvider(QueueEventMixin, ConversationProvider):
         except (OSError, ValueError, httpx.HTTPError) as error:
             await self._emit(ProviderError(message=f"Gemma generation failed: {error}"))
             await self._change_state(ConversationState.LISTENING)
+
+    async def _transcribe_and_respond(self, audio: bytes, encoding: str) -> None:
+        try:
+            transcript = await self.transport.transcribe_audio(
+                self.model,
+                audio,
+                encoding,
+                self.transcription_prompt,
+            )
+            if not transcript:
+                raise ValueError("Gemma returned an empty audio transcription")
+        except asyncio.CancelledError:
+            await self._emit(ResponseInterrupted(text="", reason="audio_input_cancelled"))
+            await self._change_state(ConversationState.INTERRUPTED)
+            await self._change_state(ConversationState.LISTENING)
+            raise
+        except (OSError, ValueError, httpx.HTTPError) as error:
+            await self._emit(ProviderError(message=f"Gemma transcription failed: {error}"))
+            await self._change_state(ConversationState.LISTENING)
+            return
+
+        self._turn_count += 1
+        self._history.append({"role": "user", "content": transcript})
+        await self._emit(TranscriptFinalized(text=transcript, role="user"))
+        await self._stream_response()
 
     async def _change_state(self, state: ConversationState) -> None:
         previous = self._state

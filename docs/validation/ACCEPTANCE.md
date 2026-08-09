@@ -31,12 +31,13 @@ Expected evidence:
 - a `session_resumed` event follows the earlier checkpoint;
 - `transcript.txt` and `summary.md` can be deleted and deterministically regenerated.
 
-## Android Gemma acceptance — not yet device validated
+## Android Gemma boundary — implemented, hardware acceptance pending
 
-The local Gemma provider is tested with a deterministic transport. Follow
-[`../android/GEMMA.md`](../android/GEMMA.md) to validate LiteRT-LM, the registered model ID,
-streaming, interruption, and resume in Termux. Do not claim native audio until microphone
-input and the LiteRT-LM multimodal request shape are tested on the phone.
+The suite verifies the LiteRT-LM `input_audio` payload, SSE response translation, 16 kHz mono
+Termux command boundary, ASR-to-normalized-text handoff, audio interruption, model discovery,
+package inventory, and failure reporting. Follow [`../android/GEMMA.md`](../android/GEMMA.md)
+to validate the actual model, microphone permission, capture codec, latency, heat, and routing
+on the Z Fold. Continuous audio, VAD, playback, and Bluetooth behavior are not claimed.
 
 ## Mac audio acceptance — not yet validated
 

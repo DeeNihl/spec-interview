@@ -20,7 +20,11 @@ class ConversationProviderFactory:
                 config.gemma_endpoint,
                 api_key=config.gemma_api_key,
             )
-            return LocalGemmaProvider(model=config.gemma_model, transport=transport)
+            return LocalGemmaProvider(
+                model=config.gemma_model,
+                transport=transport,
+                audio_enabled=config.gemma_audio_enabled,
+            )
         if name == "parlor-gemma":
             return LocalParlorGemmaProvider(config.parlor_endpoint)
         if name == "nova-sonic":

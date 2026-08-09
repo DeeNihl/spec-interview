@@ -16,15 +16,17 @@ Date: 2026-08-09
 - Nova Sonic prerequisite/configuration boundary and fixture-tested event translation.
 - Local Gemma streaming transport with model discovery, interruption, history checkpointing,
   and resume through an OpenAI-compatible endpoint.
+- Exact LiteRT-LM `input_audio` request boundary, native Gemma ASR-to-text normalization,
+  bounded Termux:API microphone capture, and non-mutating Android/app/model inventory probe.
 - Dockerfile, Compose file, dev container configuration, project guidance, and validation docs.
 
 Validation results:
 
 ```text
 ruff check .                 All checks passed
-ruff format --check .        32 files already formatted
-mypy                         Success: no issues found in 19 source files
-pytest                       28 passed
+ruff format --check .        37 files already formatted
+mypy                         Success: no issues found in 23 source files
+pytest                       37 passed
 ```
 
 Two real CLI processes were run against the installed editable package. One completed and
@@ -49,6 +51,17 @@ without special interruption or resume paths outside the provider contract.
 
 The live WebSocket transport, browser audio window, CoreAudio/Bluetooth routing, VAD,
 playback, and natural barge-in are not implemented or claimed as tested yet.
+
+## Implemented but requiring Z Fold validation
+
+- Loopback model discovery and streaming text against the LiteRT-LM OpenAI server.
+- LiteRT-LM-compatible base64 `input_audio` requests and Gemma ASR normalization.
+- Termux:API bounded mono 16 kHz Opus capture command.
+- Read-only device, likely app-package, microphone-command, and model-server probe.
+
+The cloud suite proves these boundaries with fakes and HTTP protocol fixtures. The phone must
+still prove the exact installed app/model, model registry, Termux:API permission, captured
+Opus decoding, latency, memory pressure, temperature, battery cost, and audio routing.
 
 ## Implemented but requiring AWS credentials and model access
 
@@ -77,7 +90,8 @@ docker run --rm spec-interview:dev doctor --plain
 - Full structured interview state machine and specification domain records.
 - Protocol Manager, TMNT, typed-agent, or larger-framework integration.
 - Automatic repository editing or Claude Code invocation.
-- Native desktop or Android clients and authenticated multi-user service.
+- Native desktop or Android GUI clients and authenticated multi-user service.
+- Continuous microphone streaming, VAD, TTS playback, and full-duplex voice on Android.
 
 ## Recommended next vertical slice
 
