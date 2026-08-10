@@ -4,9 +4,13 @@
 interviews. This proof demonstrates that one manager, event store, checkpoint format, and
 CLI can outlive provider connections and preserve both completed and interrupted responses.
 
-The mock provider is fully executable and tested. The Parlor/Gemma and Amazon Nova Sonic
-providers currently define honest, fixture-tested adapter boundaries; their live transports
-still require Mac audio and AWS acceptance slices respectively.
+The mock provider is fully executable and tested. `gemma-local` provides streaming text and
+bounded native-audio input through a local OpenAI-compatible Gemma server, including
+LiteRT-LM on Android. Audio is transcribed first and then passed through the same normalized
+text-turn path, so transcripts, interruption, checkpoint, and resume remain provider-neutral.
+The Parlor/Gemma audio and Amazon Nova Sonic providers currently define honest,
+fixture-tested adapter boundaries; their live transports still require device and AWS
+acceptance slices respectively.
 
 ## Quick start
 
@@ -70,8 +74,12 @@ Each session directory contains:
 ```text
 spec-interview providers list [--plain]
 spec-interview devices list
+spec-interview android probe [--plain]
+spec-interview android record-test [--seconds 1..30]
+spec-interview android tts-test [--message TEXT]
+spec-interview android converse [--seconds 1..30] [--turns 1..50]
 spec-interview doctor [--plain]
-spec-interview start --provider {mock,parlor-gemma,nova-sonic}
+spec-interview start --provider {mock,gemma-local,parlor-gemma,nova-sonic}
 spec-interview resume SESSION_ID
 spec-interview transcript SESSION_ID
 spec-interview sessions list [--plain]
@@ -80,6 +88,24 @@ spec-interview sessions list [--plain]
 `start` for `parlor-gemma` and `nova-sonic` fails with an actionable message until their
 live transport slices are implemented and validated. `doctor` is safe and does not start a
 session.
+
+For a local Gemma server:
+
+```bash
+export SPEC_INTERVIEW_GEMMA_ENDPOINT=http://127.0.0.1:8081
+export SPEC_INTERVIEW_GEMMA_MODEL=MODEL_ID_FROM_V1_MODELS
+spec-interview doctor
+spec-interview start --provider gemma-local --message "Map the system boundary."
+
+# On Termux with Termux:API, FFmpeg, and microphone permission:
+spec-interview android probe --plain
+spec-interview android record-test --seconds 8
+spec-interview android tts-test
+spec-interview android converse --seconds 8 --turns 3
+```
+
+See [`docs/android/GEMMA.md`](docs/android/GEMMA.md) for the Termux/LiteRT-LM path and the
+remaining phone acceptance tests.
 
 ## Development
 
@@ -99,6 +125,7 @@ models, or optional provider dependencies.
 ```bash
 pip install -e '.[aws]'    # boto3 prerequisite detection for Nova Sonic
 pip install -e '.[audio]'  # sounddevice-backed device listing
+pip install -e '.[android]' # LiteRT-LM for Android/Termux
 ```
 
 For the current validation boundary and remaining work, see
@@ -116,12 +143,19 @@ Fully implemented and tested in the cloud proof:
 - append-only JSONL, truncated-tail recovery, checkpoint/resume, transcript, and summary;
 - CLI plus plain JSON output;
 - fixture-level Parlor and Nova event translation;
-- provider diagnostics and explicit unavailable states.
+- provider diagnostics and explicit unavailable states;
+- streaming local Gemma text, interruption, checkpoint, and resume through a transport seam;
+- LiteRT-LM `input_audio` serialization, bounded Termux microphone capture, Opus-to-PCM-WAV
+  conversion, native Gemma ASR, normalized transcript generation, and audio
+  interruption/failure contracts.
+- provider-neutral speech output, sentence chunking, Android system TTS, and a bounded
+  multi-turn spoken interview command.
 
 Not yet claimed:
 
 - live Parlor/Gemma WebSocket and browser audio;
+- sustained Z Fold performance, heat, battery cost, and Bluetooth routing;
+- continuous microphone streaming, VAD, interruptible playback, and duplex voice behavior;
 - microphone, playback, Bluetooth routing, VAD, and barge-in on macOS;
 - live Bedrock bidirectional streaming or Nova session renewal;
 - interview policy, Opus architect, or automatic repository edits.
-

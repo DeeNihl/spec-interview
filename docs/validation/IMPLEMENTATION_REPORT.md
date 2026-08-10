@@ -14,15 +14,22 @@ Date: 2026-08-09
 - Rich human output and plain JSON output for non-interactive use.
 - Parlor/Gemma health/configuration boundary and fixture-tested event translation.
 - Nova Sonic prerequisite/configuration boundary and fixture-tested event translation.
+- Local Gemma streaming transport with model discovery, interruption, history checkpointing,
+  and resume through an OpenAI-compatible endpoint.
+- Exact LiteRT-LM `input_audio` request boundary, native Gemma ASR-to-text normalization,
+  bounded Termux:API microphone capture, Opus-to-PCM-WAV conversion, and non-mutating
+  Android/app/model inventory probe.
+- Provider-neutral speech output ABC, bounded sentence chunking, Android system TTS command
+  adapter, and one-session multi-turn spoken interview orchestration.
 - Dockerfile, Compose file, dev container configuration, project guidance, and validation docs.
 
 Validation results:
 
 ```text
 ruff check .                 All checks passed
-ruff format --check .        28 files already formatted
-mypy                         Success: no issues found in 18 source files
-pytest                       22 passed in 0.57s
+ruff format --check .        42 files already formatted
+mypy                         Success: no issues found in 26 source files
+pytest                       44 passed
 ```
 
 Two real CLI processes were run against the installed editable package. One completed and
@@ -47,6 +54,21 @@ without special interruption or resume paths outside the provider contract.
 
 The live WebSocket transport, browser audio window, CoreAudio/Bluetooth routing, VAD,
 playback, and natural barge-in are not implemented or claimed as tested yet.
+
+## Z Fold validation
+
+- Loopback model discovery and streaming text against the LiteRT-LM OpenAI server.
+- LiteRT-LM-compatible base64 `input_audio` requests and Gemma ASR normalization.
+- Termux:API bounded mono 16 kHz Opus capture and FFmpeg mono 16 kHz PCM WAV conversion.
+- Android system TTS with sentence-sized command boundaries and a bounded multi-turn loop.
+- Read-only device, likely app-package, microphone-command, and model-server probe.
+
+The cloud suite proves these boundaries with fakes and HTTP protocol fixtures. The phone must
+still prove sustained latency, memory pressure, temperature, battery cost, and audio routing.
+The Z Fold validation has already confirmed Android 16, aarch64, Termux microphone permission
+and capture, Opus-to-WAV conversion, LiteRT-LM 0.15.0, the registered
+`gemma-4-E4B-it.litertlm` model, a healthy loopback server, and a completed audio response.
+System TTS and the bounded multi-turn loop still require phone acceptance.
 
 ## Implemented but requiring AWS credentials and model access
 
@@ -75,12 +97,11 @@ docker run --rm spec-interview:dev doctor --plain
 - Full structured interview state machine and specification domain records.
 - Protocol Manager, TMNT, typed-agent, or larger-framework integration.
 - Automatic repository editing or Claude Code invocation.
-- Native desktop or Android clients and authenticated multi-user service.
+- Native desktop or Android GUI clients and authenticated multi-user service.
+- Continuous microphone streaming, VAD, interruptible TTS, and full-duplex voice on Android.
 
 ## Recommended next vertical slice
 
-Implement the Parlor WebSocket client behind `LocalParlorGemmaProvider`, using recorded
-frames first and a transport interface that can be replaced in tests. Then validate the tiny
-browser audio window on the Mac. That exercises the most uncertain local-audio behavior
-without entangling AWS credentials or Nova renewal in the same debugging pass.
-
+After accepting the bounded spoken loop on the Z Fold, add continuous microphone capture and
+local VAD. Preserve the current provider and speech-effector seams, then introduce a playback
+backend with a real stop primitive so user speech can cancel generation and audio together.

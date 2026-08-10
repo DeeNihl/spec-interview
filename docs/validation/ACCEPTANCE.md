@@ -31,6 +31,17 @@ Expected evidence:
 - a `session_resumed` event follows the earlier checkpoint;
 - `transcript.txt` and `summary.md` can be deleted and deterministically regenerated.
 
+## Android Gemma boundary — core hardware path accepted; spoken loop pending
+
+The suite verifies the LiteRT-LM `input_audio` payload, SSE response translation, 16 kHz mono
+Termux command boundary, Opus-to-PCM-WAV conversion command, ASR-to-normalized-text handoff,
+audio interruption, model discovery, package inventory, and failure reporting. Follow
+[`../android/GEMMA.md`](../android/GEMMA.md) to validate the actual model, microphone
+permission, conversion, latency, heat, and routing on the Z Fold. The Z Fold has produced a
+successful microphone-to-Gemma response. Sentence-chunked Android system TTS and bounded
+multi-turn orchestration are implemented and fixture-tested, but still need phone acceptance.
+Continuous audio, VAD, interruptible playback, and Bluetooth behavior are not claimed.
+
 ## Mac audio acceptance — not yet validated
 
 After the Parlor transport slice exists:
@@ -58,4 +69,3 @@ The live slice must validate:
 - provider connection renewal while preserving the interview session ID;
 - checkpoint continuity across process restart;
 - latency and cost collection.
-

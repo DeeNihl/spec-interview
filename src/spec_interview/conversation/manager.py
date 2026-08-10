@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from spec_interview.conversation.models import (
+    AudioChunk,
     CheckpointCreated,
     ConversationEvent,
     EventPayload,
@@ -90,6 +91,9 @@ class ConversationManager:
 
     async def send_text(self, text: str) -> None:
         await self.provider.send_text(text)
+
+    async def send_audio(self, chunk: AudioChunk) -> None:
+        await self.provider.send_audio(chunk)
 
     async def interrupt(self) -> None:
         await self.provider.interrupt()

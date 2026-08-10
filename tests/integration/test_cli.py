@@ -15,9 +15,20 @@ def test_provider_list_plain() -> None:
     providers = json.loads(result.stdout)
     assert [provider["name"] for provider in providers] == [
         "mock",
+        "gemma-local",
         "parlor-gemma",
         "nova-sonic",
     ]
+
+
+def test_android_spoken_commands_are_registered() -> None:
+    tts = runner.invoke(app, ["android", "tts-test", "--help"])
+    converse = runner.invoke(app, ["android", "converse", "--help"])
+
+    assert tts.exit_code == 0, tts.output
+    assert "Android system TTS" in tts.output
+    assert converse.exit_code == 0, converse.output
+    assert "multi-turn spoken specification interview" in converse.output
 
 
 def test_cli_start_resume_and_transcript(tmp_path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Annotated
 from uuid import UUID
 
@@ -12,19 +13,32 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from spec_interview.android import AndroidProbe
+from spec_interview.audio import FFmpegAudioTranscoder, TermuxMicrophoneRecorder
 from spec_interview.config import AppConfig, ConversationProviderFactory, ProviderName
 from spec_interview.conversation.manager import ConversationManager
-from spec_interview.conversation.models import ProviderStatus, ResponseInterrupted
+from spec_interview.conversation.models import (
+    AudioChunk,
+    EventPayload,
+    ProviderError,
+    ProviderStatus,
+    ResponseCompleted,
+    ResponseInterrupted,
+)
 from spec_interview.conversation.provider import ProviderUnavailableError
+from spec_interview.providers.gemma import OpenAICompatibleGemmaTransport
 from spec_interview.sessions import SessionStore
+from spec_interview.speech import SpeechProvider, TermuxSpeechProvider
 
 app = typer.Typer(help="Conduct and preserve provider-neutral technical interviews.")
 providers_app = typer.Typer(help="Inspect conversation providers.")
 sessions_app = typer.Typer(help="Inspect saved interview sessions.")
 devices_app = typer.Typer(help="Inspect optional audio devices.")
+android_app = typer.Typer(help="Probe and validate Android/Termux boundaries.")
 app.add_typer(providers_app, name="providers")
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(devices_app, name="devices")
+app.add_typer(android_app, name="android")
 console = Console()
 
 
@@ -87,6 +101,184 @@ def doctor(
             typer.echo(f"[{icon}] {status.name}: {status.detail}")
 
 
+async def _probe_android(config: AppConfig) -> dict[str, object]:
+    transport = OpenAICompatibleGemmaTransport(
+        config.gemma_endpoint,
+        api_key=config.gemma_api_key,
+    )
+    report = await AndroidProbe(transport).inspect()
+    return report.model_dump(mode="json")
+
+
+@android_app.command("probe")
+def android_probe(
+    plain: Annotated[bool, typer.Option("--plain", help="Use machine-friendly JSON.")] = False,
+) -> None:
+    """Inventory Android, Termux:API, likely model apps, and the loopback server."""
+    report = asyncio.run(_probe_android(AppConfig()))
+    if plain:
+        typer.echo(json.dumps(report, indent=2))
+        return
+    typer.echo(json.dumps(report, indent=2))
+
+
+async def _record_android_turn(
+    duration_seconds: int,
+    data_dir: Path | None,
+) -> tuple[UUID, EventPayload]:
+    config = _config(data_dir).model_copy(update={"gemma_audio_enabled": True})
+    provider = ConversationProviderFactory.create("gemma-local", config)
+    manager = ConversationManager(provider, SessionStore(config.data_dir))
+    status = await provider.status()
+    if not status.available:
+        raise ProviderUnavailableError(status.detail)
+    audio = await _capture_android_audio(duration_seconds)
+    await manager.start()
+    before = manager.last_sequence
+    await manager.send_audio(audio)
+    terminal = await manager.wait_for_response(before, wait_seconds=180.0)
+    await manager.create_checkpoint()
+    summary = await manager.close()
+    return summary.session_id, terminal.payload
+
+
+async def _capture_android_audio(duration_seconds: int) -> AudioChunk:
+    with TemporaryDirectory(prefix="spec-interview-audio-") as temporary:
+        source = Path(temporary) / "utterance.opus"
+        target = Path(temporary) / "utterance.wav"
+        await TermuxMicrophoneRecorder().record(source, duration_seconds)
+        audio = await FFmpegAudioTranscoder().opus_to_wav(source, target)
+    return AudioChunk(data=audio, encoding="wav")
+
+
+@android_app.command("record-test")
+def android_record_test(
+    duration_seconds: Annotated[
+        int,
+        typer.Option("--seconds", min=1, max=30, help="Bounded microphone utterance length."),
+    ] = 8,
+    data_dir: Annotated[Path | None, typer.Option("--data-dir")] = None,
+    plain: Annotated[bool, typer.Option("--plain")] = False,
+) -> None:
+    """Record one Termux utterance, transcribe it with Gemma, and stream a response."""
+    try:
+        session_id, terminal = asyncio.run(_record_android_turn(duration_seconds, data_dir))
+    except (ProviderUnavailableError, RuntimeError, ValueError) as error:
+        typer.echo(f"Android audio test failed: {error}", err=True)
+        raise typer.Exit(code=2) from None
+    payload = {"session_id": str(session_id), "terminal_event": terminal.type}
+    if isinstance(terminal, ProviderError):
+        payload["error"] = terminal.message
+    typer.echo(json.dumps(payload) if plain else f"Session {session_id}: {terminal.type}")
+    if isinstance(terminal, ProviderError):
+        if not plain:
+            typer.echo(f"Provider error: {terminal.message}", err=True)
+        raise typer.Exit(code=2)
+
+
+@android_app.command("tts-test")
+def android_tts_test(
+    message: Annotated[
+        str,
+        typer.Option("--message", help="Text spoken through Android's configured system voice."),
+    ] = "The conversational interview speech provider is ready.",
+    language: Annotated[str | None, typer.Option("--language")] = None,
+    rate: Annotated[float | None, typer.Option("--rate", min=0.1, max=4.0)] = None,
+    pitch: Annotated[float | None, typer.Option("--pitch", min=0.1, max=2.0)] = None,
+) -> None:
+    """Speak one message through Android system TTS."""
+    speech = TermuxSpeechProvider(language=language, rate=rate, pitch=pitch)
+    try:
+        if not asyncio.run(speech.available()):
+            raise RuntimeError("termux-tts-speak is unavailable; install the termux-api package")
+        asyncio.run(speech.speak(message))
+    except (RuntimeError, ValueError) as error:
+        typer.echo(f"Android TTS test failed: {error}", err=True)
+        raise typer.Exit(code=2) from None
+    typer.echo("Android TTS completed.")
+
+
+async def _converse_android(
+    duration_seconds: int,
+    turns: int,
+    data_dir: Path | None,
+    speech: SpeechProvider,
+    opening: str,
+    show_text: bool,
+) -> UUID:
+    config = _config(data_dir).model_copy(update={"gemma_audio_enabled": True})
+    provider = ConversationProviderFactory.create("gemma-local", config)
+    manager = ConversationManager(provider, SessionStore(config.data_dir))
+    status = await provider.status()
+    if not status.available:
+        raise ProviderUnavailableError(status.detail)
+    if not await speech.available():
+        raise RuntimeError("termux-tts-speak is unavailable; install the termux-api package")
+
+    await manager.start(metadata={"client": "android-converse"})
+    try:
+        if show_text:
+            typer.echo(f"Interviewer: {opening}")
+        await speech.speak(opening)
+        for turn in range(1, turns + 1):
+            if show_text:
+                typer.echo(f"Listening ({turn}/{turns})...")
+            audio = await _capture_android_audio(duration_seconds)
+            before = manager.last_sequence
+            await manager.send_audio(audio)
+            terminal = await manager.wait_for_response(before, wait_seconds=180.0)
+            if isinstance(terminal.payload, ProviderError):
+                raise RuntimeError(terminal.payload.message)
+            if not isinstance(terminal.payload, ResponseCompleted):
+                raise RuntimeError(f"unexpected terminal event: {terminal.payload.type}")
+            response = terminal.payload.text
+            if show_text:
+                typer.echo(f"Interviewer: {response}")
+            await speech.speak(response)
+            await manager.create_checkpoint()
+    finally:
+        summary = await manager.close()
+    return summary.session_id
+
+
+@android_app.command("converse")
+def android_converse(
+    duration_seconds: Annotated[
+        int,
+        typer.Option("--seconds", min=1, max=30, help="Recording length for each spoken turn."),
+    ] = 8,
+    turns: Annotated[
+        int,
+        typer.Option("--turns", min=1, max=50, help="Number of bounded interview turns."),
+    ] = 3,
+    data_dir: Annotated[Path | None, typer.Option("--data-dir")] = None,
+    language: Annotated[str | None, typer.Option("--language")] = None,
+    rate: Annotated[float | None, typer.Option("--rate", min=0.1, max=4.0)] = None,
+    pitch: Annotated[float | None, typer.Option("--pitch", min=0.1, max=2.0)] = None,
+    opening: Annotated[
+        str,
+        typer.Option("--opening", help="First question spoken before microphone capture."),
+    ] = (
+        "Let's start by grounding your idea. What are you building, what does it do, "
+        "and why does it matter?"
+    ),
+    plain: Annotated[bool, typer.Option("--plain")] = False,
+) -> None:
+    """Run a bounded, multi-turn spoken specification interview on Android."""
+    speech = TermuxSpeechProvider(language=language, rate=rate, pitch=pitch)
+    try:
+        session_id = asyncio.run(
+            _converse_android(duration_seconds, turns, data_dir, speech, opening, not plain)
+        )
+    except (ProviderUnavailableError, RuntimeError, ValueError) as error:
+        typer.echo(f"Android conversation failed: {error}", err=True)
+        raise typer.Exit(code=2) from None
+    if plain:
+        typer.echo(json.dumps({"session_id": str(session_id), "turns": turns}))
+    else:
+        typer.echo(f"Conversation saved as session {session_id}.")
+
+
 async def _start_session(
     provider_name: ProviderName,
     message: str,
@@ -102,7 +294,8 @@ async def _start_session(
     if interrupt_after is not None:
         await asyncio.sleep(interrupt_after)
         await manager.interrupt()
-    terminal = await manager.wait_for_response(before)
+    wait_seconds = 180.0 if provider_name == "gemma-local" else 10.0
+    terminal = await manager.wait_for_response(before, wait_seconds=wait_seconds)
     await manager.create_checkpoint()
     summary = await manager.close()
     result = "interrupted" if isinstance(terminal.payload, ResponseInterrupted) else "completed"
