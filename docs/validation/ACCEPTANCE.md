@@ -34,10 +34,11 @@ Expected evidence:
 ## Android Gemma boundary — implemented, hardware acceptance pending
 
 The suite verifies the LiteRT-LM `input_audio` payload, SSE response translation, 16 kHz mono
-Termux command boundary, ASR-to-normalized-text handoff, audio interruption, model discovery,
-package inventory, and failure reporting. Follow [`../android/GEMMA.md`](../android/GEMMA.md)
-to validate the actual model, microphone permission, capture codec, latency, heat, and routing
-on the Z Fold. Continuous audio, VAD, playback, and Bluetooth behavior are not claimed.
+Termux command boundary, Opus-to-PCM-WAV conversion command, ASR-to-normalized-text handoff,
+audio interruption, model discovery, package inventory, and failure reporting. Follow
+[`../android/GEMMA.md`](../android/GEMMA.md) to validate the actual model, microphone
+permission, conversion, latency, heat, and routing on the Z Fold. Continuous audio, VAD,
+playback, and Bluetooth behavior are not claimed.
 
 ## Mac audio acceptance — not yet validated
 

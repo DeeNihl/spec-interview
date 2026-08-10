@@ -95,7 +95,7 @@ export SPEC_INTERVIEW_GEMMA_MODEL=MODEL_ID_FROM_V1_MODELS
 spec-interview doctor
 spec-interview start --provider gemma-local --message "Map the system boundary."
 
-# On Termux with Termux:API microphone permission:
+# On Termux with Termux:API, FFmpeg, and microphone permission:
 spec-interview android probe --plain
 spec-interview android record-test --seconds 8
 ```
@@ -141,8 +141,9 @@ Fully implemented and tested in the cloud proof:
 - fixture-level Parlor and Nova event translation;
 - provider diagnostics and explicit unavailable states;
 - streaming local Gemma text, interruption, checkpoint, and resume through a transport seam;
-- LiteRT-LM `input_audio` serialization, bounded Termux microphone capture, native Gemma ASR,
-  normalized transcript generation, and audio interruption/failure contracts.
+- LiteRT-LM `input_audio` serialization, bounded Termux microphone capture, Opus-to-PCM-WAV
+  conversion, native Gemma ASR, normalized transcript generation, and audio
+  interruption/failure contracts.
 
 Not yet claimed:
 

@@ -6,9 +6,10 @@
 native audio input. The audio path is intentionally two-stage:
 
 1. Termux:API records one bounded mono 16 kHz Opus utterance.
-2. Gemma transcribes it through LiteRT-LM's `input_audio` request shape.
-3. The transcript enters the ordinary text-turn path.
-4. The interview response streams through normalized events.
+2. FFmpeg converts that compressed recording to mono 16 kHz PCM WAV.
+3. Gemma transcribes the WAV through LiteRT-LM's `input_audio` request shape.
+4. The transcript enters the ordinary text-turn path.
+5. The interview response streams through normalized events.
 
 This preserves a real user transcript and reuses the same interruption, JSONL, checkpoint,
 resume, and transcript consumers as every other provider. It is not yet continuous duplex
@@ -38,16 +39,19 @@ not a supported cross-app model registry. Do not root the phone or weaken app is
 
 ## Termux prerequisites
 
-Microphone capture uses the official `termux-microphone-record` command. It requires both the
-Termux:API Android companion app and its Termux package, plus microphone permission:
+Microphone capture uses the official `termux-microphone-record` command. FFmpeg converts its
+Opus output to the PCM WAV bytes LiteRT-LM passes correctly to Gemma. Install both packages
+and grant Termux microphone permission:
 
 ```bash
-pkg install termux-api
+pkg install termux-api ffmpeg
 termux-microphone-record -h
+ffmpeg -version
 ```
 
-The command boundary uses only documented flags: file, duration, Opus encoder, 16 kHz sample
-rate, and one channel. See the official
+The recorder boundary uses only documented flags: file, duration, Opus encoder, 16 kHz sample
+rate, and one channel. Conversion is non-interactive and explicitly produces mono 16 kHz
+`pcm_s16le` WAV. See the official
 [Termux:API microphone script](https://github.com/termux/termux-api-package/blob/master/scripts/termux-microphone-record.in).
 
 ## LiteRT-LM registry and server
@@ -99,6 +103,7 @@ Record these results before calling the integration complete:
 
 The cloud suite proves serialization, event order, cancellation, persistence, and command
 construction without Android, a microphone, or a model. The phone must still prove Android
-permissions, actual Opus decode, model/audio-backend compatibility, and routing. Continuous
+permissions, actual Opus capture and WAV conversion, model/audio-backend compatibility, and
+routing. Continuous
 capture, VAD, TTS playback, Bluetooth controls, foreground-service lifecycle, and full duplex
 conversation are later slices.

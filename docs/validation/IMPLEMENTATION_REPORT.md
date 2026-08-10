@@ -17,7 +17,8 @@ Date: 2026-08-09
 - Local Gemma streaming transport with model discovery, interruption, history checkpointing,
   and resume through an OpenAI-compatible endpoint.
 - Exact LiteRT-LM `input_audio` request boundary, native Gemma ASR-to-text normalization,
-  bounded Termux:API microphone capture, and non-mutating Android/app/model inventory probe.
+  bounded Termux:API microphone capture, Opus-to-PCM-WAV conversion, and non-mutating
+  Android/app/model inventory probe.
 - Dockerfile, Compose file, dev container configuration, project guidance, and validation docs.
 
 Validation results:
@@ -26,7 +27,7 @@ Validation results:
 ruff check .                 All checks passed
 ruff format --check .        37 files already formatted
 mypy                         Success: no issues found in 23 source files
-pytest                       37 passed
+pytest                       39 passed
 ```
 
 Two real CLI processes were run against the installed editable package. One completed and
@@ -56,12 +57,14 @@ playback, and natural barge-in are not implemented or claimed as tested yet.
 
 - Loopback model discovery and streaming text against the LiteRT-LM OpenAI server.
 - LiteRT-LM-compatible base64 `input_audio` requests and Gemma ASR normalization.
-- Termux:API bounded mono 16 kHz Opus capture command.
+- Termux:API bounded mono 16 kHz Opus capture and FFmpeg mono 16 kHz PCM WAV conversion.
 - Read-only device, likely app-package, microphone-command, and model-server probe.
 
 The cloud suite proves these boundaries with fakes and HTTP protocol fixtures. The phone must
-still prove the exact installed app/model, model registry, Termux:API permission, captured
-Opus decoding, latency, memory pressure, temperature, battery cost, and audio routing.
+still prove the end-to-end WAV inference result, latency, memory pressure, temperature,
+battery cost, and audio routing. The Z Fold validation has already confirmed Android 16,
+aarch64, Termux microphone permission and capture, LiteRT-LM 0.15.0, the registered
+`gemma-4-E4B-it.litertlm` model, and a healthy loopback server.
 
 ## Implemented but requiring AWS credentials and model access
 

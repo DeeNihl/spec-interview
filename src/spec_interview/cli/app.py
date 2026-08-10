@@ -14,10 +14,16 @@ from rich.console import Console
 from rich.table import Table
 
 from spec_interview.android import AndroidProbe
-from spec_interview.audio import TermuxMicrophoneRecorder
+from spec_interview.audio import FFmpegAudioTranscoder, TermuxMicrophoneRecorder
 from spec_interview.config import AppConfig, ConversationProviderFactory, ProviderName
 from spec_interview.conversation.manager import ConversationManager
-from spec_interview.conversation.models import AudioChunk, ProviderStatus, ResponseInterrupted
+from spec_interview.conversation.models import (
+    AudioChunk,
+    EventPayload,
+    ProviderError,
+    ProviderStatus,
+    ResponseInterrupted,
+)
 from spec_interview.conversation.provider import ProviderUnavailableError
 from spec_interview.providers.gemma import OpenAICompatibleGemmaTransport
 from spec_interview.sessions import SessionStore
@@ -117,7 +123,7 @@ def android_probe(
 async def _record_android_turn(
     duration_seconds: int,
     data_dir: Path | None,
-) -> tuple[UUID, str]:
+) -> tuple[UUID, EventPayload]:
     config = _config(data_dir).model_copy(update={"gemma_audio_enabled": True})
     provider = ConversationProviderFactory.create("gemma-local", config)
     manager = ConversationManager(provider, SessionStore(config.data_dir))
@@ -125,15 +131,17 @@ async def _record_android_turn(
     if not status.available:
         raise ProviderUnavailableError(status.detail)
     with TemporaryDirectory(prefix="spec-interview-audio-") as temporary:
-        target = Path(temporary) / "utterance.opus"
-        audio = await TermuxMicrophoneRecorder().record(target, duration_seconds)
+        source = Path(temporary) / "utterance.opus"
+        target = Path(temporary) / "utterance.wav"
+        await TermuxMicrophoneRecorder().record(source, duration_seconds)
+        audio = await FFmpegAudioTranscoder().opus_to_wav(source, target)
         await manager.start()
         before = manager.last_sequence
-        await manager.send_audio(AudioChunk(data=audio, encoding="opus"))
+        await manager.send_audio(AudioChunk(data=audio, encoding="wav"))
         terminal = await manager.wait_for_response(before, wait_seconds=180.0)
         await manager.create_checkpoint()
         summary = await manager.close()
-    return summary.session_id, terminal.payload.type
+    return summary.session_id, terminal.payload
 
 
 @android_app.command("record-test")
@@ -147,12 +155,18 @@ def android_record_test(
 ) -> None:
     """Record one Termux utterance, transcribe it with Gemma, and stream a response."""
     try:
-        session_id, result = asyncio.run(_record_android_turn(duration_seconds, data_dir))
+        session_id, terminal = asyncio.run(_record_android_turn(duration_seconds, data_dir))
     except (ProviderUnavailableError, RuntimeError, ValueError) as error:
         typer.echo(f"Android audio test failed: {error}", err=True)
         raise typer.Exit(code=2) from None
-    payload = {"session_id": str(session_id), "terminal_event": result}
-    typer.echo(json.dumps(payload) if plain else f"Session {session_id}: {result}")
+    payload = {"session_id": str(session_id), "terminal_event": terminal.type}
+    if isinstance(terminal, ProviderError):
+        payload["error"] = terminal.message
+    typer.echo(json.dumps(payload) if plain else f"Session {session_id}: {terminal.type}")
+    if isinstance(terminal, ProviderError):
+        if not plain:
+            typer.echo(f"Provider error: {terminal.message}", err=True)
+        raise typer.Exit(code=2)
 
 
 async def _start_session(
@@ -170,7 +184,8 @@ async def _start_session(
     if interrupt_after is not None:
         await asyncio.sleep(interrupt_after)
         await manager.interrupt()
-    terminal = await manager.wait_for_response(before)
+    wait_seconds = 180.0 if provider_name == "gemma-local" else 10.0
+    terminal = await manager.wait_for_response(before, wait_seconds=wait_seconds)
     await manager.create_checkpoint()
     summary = await manager.close()
     result = "interrupted" if isinstance(terminal.payload, ResponseInterrupted) else "completed"

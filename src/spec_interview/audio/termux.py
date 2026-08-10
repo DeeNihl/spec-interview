@@ -58,3 +58,35 @@ class TermuxMicrophoneRecorder:
         if target.is_file() and target.stat().st_size > 0:
             return target.read_bytes()
         return None
+
+
+class FFmpegAudioTranscoder:
+    """Convert Termux's Opus output to the PCM WAV expected by LiteRT-LM."""
+
+    def __init__(self, runner: CommandRunner = run_command) -> None:
+        self.runner = runner
+
+    async def opus_to_wav(self, source: Path, target: Path) -> bytes:
+        result = await self.runner(
+            (
+                "ffmpeg",
+                "-nostdin",
+                "-y",
+                "-i",
+                str(source),
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+                str(target),
+            )
+        )
+        if result.returncode != 0:
+            detail = result.stderr or result.stdout or "unknown FFmpeg failure"
+            raise RuntimeError(f"could not convert microphone audio to WAV: {detail}")
+        audio = await asyncio.to_thread(TermuxMicrophoneRecorder._read_if_ready, target)
+        if audio is None:
+            raise RuntimeError(f"FFmpeg did not produce {target}")
+        return audio

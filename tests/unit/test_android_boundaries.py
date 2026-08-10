@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from spec_interview.android.probe import AndroidProbe, CommandResult
-from spec_interview.audio.termux import TermuxMicrophoneRecorder
+from spec_interview.audio.termux import FFmpegAudioTranscoder, TermuxMicrophoneRecorder
 from spec_interview.providers.gemma import ChatMessage
 
 
@@ -123,4 +123,48 @@ async def test_termux_recorder_surfaces_command_and_file_failures(tmp_path: Path
     with pytest.raises(RuntimeError, match="did not produce"):
         await TermuxMicrophoneRecorder(starts_without_file, no_sleep).record(
             tmp_path / "never-created.opus", 1
+        )
+
+
+@pytest.mark.asyncio
+async def test_ffmpeg_transcoder_produces_mono_16khz_pcm_wav(tmp_path: Path) -> None:
+    source = tmp_path / "utterance.opus"
+    target = tmp_path / "utterance.wav"
+    source.write_bytes(b"opus")
+    commands: list[tuple[str, ...]] = []
+
+    async def runner(command: Sequence[str]) -> CommandResult:
+        commands.append(tuple(command))
+        target.write_bytes(b"RIFF-wav")
+        return CommandResult(returncode=0)
+
+    audio = await FFmpegAudioTranscoder(runner).opus_to_wav(source, target)
+
+    assert audio == b"RIFF-wav"
+    assert commands == [
+        (
+            "ffmpeg",
+            "-nostdin",
+            "-y",
+            "-i",
+            str(source),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            str(target),
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_ffmpeg_transcoder_surfaces_conversion_failure(tmp_path: Path) -> None:
+    async def failed(command: Sequence[str]) -> CommandResult:
+        return CommandResult(returncode=127, stderr="ffmpeg not found")
+
+    with pytest.raises(RuntimeError, match="ffmpeg not found"):
+        await FFmpegAudioTranscoder(failed).opus_to_wav(
+            tmp_path / "utterance.opus", tmp_path / "utterance.wav"
         )
