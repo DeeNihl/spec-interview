@@ -76,6 +76,8 @@ spec-interview providers list [--plain]
 spec-interview devices list
 spec-interview android probe [--plain]
 spec-interview android record-test [--seconds 1..30]
+spec-interview android tts-test [--message TEXT]
+spec-interview android converse [--seconds 1..30] [--turns 1..50]
 spec-interview doctor [--plain]
 spec-interview start --provider {mock,gemma-local,parlor-gemma,nova-sonic}
 spec-interview resume SESSION_ID
@@ -98,6 +100,8 @@ spec-interview start --provider gemma-local --message "Map the system boundary."
 # On Termux with Termux:API, FFmpeg, and microphone permission:
 spec-interview android probe --plain
 spec-interview android record-test --seconds 8
+spec-interview android tts-test
+spec-interview android converse --seconds 8 --turns 3
 ```
 
 See [`docs/android/GEMMA.md`](docs/android/GEMMA.md) for the Termux/LiteRT-LM path and the
@@ -144,12 +148,14 @@ Fully implemented and tested in the cloud proof:
 - LiteRT-LM `input_audio` serialization, bounded Termux microphone capture, Opus-to-PCM-WAV
   conversion, native Gemma ASR, normalized transcript generation, and audio
   interruption/failure contracts.
+- provider-neutral speech output, sentence chunking, Android system TTS, and a bounded
+  multi-turn spoken interview command.
 
 Not yet claimed:
 
 - live Parlor/Gemma WebSocket and browser audio;
-- real Z Fold model loading, microphone permission, performance, heat, and Bluetooth routing;
-- continuous microphone streaming, VAD, playback, and duplex voice behavior;
+- sustained Z Fold performance, heat, battery cost, and Bluetooth routing;
+- continuous microphone streaming, VAD, interruptible playback, and duplex voice behavior;
 - microphone, playback, Bluetooth routing, VAD, and barge-in on macOS;
 - live Bedrock bidirectional streaming or Nova session renewal;
 - interview policy, Opus architect, or automatic repository edits.

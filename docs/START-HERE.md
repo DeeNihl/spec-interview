@@ -52,7 +52,7 @@ These are closed decisions for the prototype unless implementation evidence show
 | Direct Nova integration first | Establishes the native protocol boundary; Strands may later sit behind the provider. |
 | Repository output is review-only | The prototype may inspect context and propose Markdown, but does not edit another repository automatically. |
 | Platform-neutral core | Do not hardcode macOS, CoreAudio, `localhost`, or a co-located microphone and runtime. |
-| Android is deferred | The Z Fold can become a client later, after an authenticated remote service exists; no current VPN means it is not a prototype priority. |
+| Android is a local client | The Z Fold runs LiteRT-LM, bounded Termux microphone capture, and Android system TTS locally; continuous VAD and barge-in remain later slices. |
 
 ## 4. Architectural Boundary
 
@@ -345,7 +345,7 @@ It should sound like a technical peer, not a questionnaire reader. The script is
 - automatic repository edits or Claude Code invocation;
 - native desktop or Android applications;
 - public multi-user service, identity, authorization, or internet exposure;
-- Android/Z Fold operation before authenticated remote access exists.
+- a native Android GUI or unattended foreground-service lifecycle.
 
 ## 12. Implementation Sequence
 
@@ -414,4 +414,3 @@ If the brief and a supporting PDF appear to differ, follow this brief for name, 
 ## 16. Immediate Instruction to Codex
 
 > Build a working proof of concept for `spec-interview` from this brief and the supporting PDFs. This is an implementation task. Do not stop after writing a plan or scaffolding. Make reasonable decisions where details are missing, preserve the provider-neutral boundary, run every safe validation available, and report honestly what genuinely works.
-

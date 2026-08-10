@@ -54,6 +54,24 @@ rate, and one channel. Conversion is non-interactive and explicitly produces mon
 `pcm_s16le` WAV. See the official
 [Termux:API microphone script](https://github.com/termux/termux-api-package/blob/master/scripts/termux-microphone-record.in).
 
+## Android system speech and conversation
+
+The speech effector uses Android's configured system TTS engine through the official
+`termux-tts-speak` command. Test that boundary independently, then run a bounded interview:
+
+```bash
+spec-interview android tts-test
+spec-interview android converse --seconds 8 --turns 3
+```
+
+`converse` keeps one Gemma session and one append-only event history across all turns. It
+speaks the opening question, records each bounded answer, transcribes and reasons locally,
+then speaks the completed response in sentence chunks. Optional `--language`, `--rate`, and
+`--pitch` settings are passed to the system engine.
+
+Termux:API does not expose a reliable TTS stop command, so this provider truthfully reports
+that playback is not interruptible. Continuous listening, VAD, and barge-in are not claimed.
+
 ## LiteRT-LM registry and server
 
 Install the Android extra, import an audio-capable Gemma model into LiteRT-LM's registry, and
@@ -98,12 +116,15 @@ Record these results before calling the integration complete:
 7. Resume uses the same interview UUID and includes earlier turns in model context.
 8. Time to first token, transcription latency, tokens/second, peak memory, heat, and battery.
 9. Internal microphone and intended Bluetooth headset routing tested separately.
+10. `android tts-test` speaks through the intended system voice and output route.
+11. `android converse --turns 3` preserves all turns under one session UUID.
 
 ## Honest boundary
 
 The cloud suite proves serialization, event order, cancellation, persistence, and command
 construction without Android, a microphone, or a model. The phone must still prove Android
 permissions, actual Opus capture and WAV conversion, model/audio-backend compatibility, and
-routing. Continuous
-capture, VAD, TTS playback, Bluetooth controls, foreground-service lifecycle, and full duplex
+routing. Sentence-chunked TTS playback and bounded multi-turn orchestration are fixture-tested.
+The phone must still prove its installed TTS engine and voice settings. Continuous capture,
+VAD, interruptible playback, Bluetooth controls, foreground-service lifecycle, and full duplex
 conversation are later slices.
